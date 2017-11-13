@@ -17,6 +17,16 @@ In this project, I will be writing code to perform Inverse Kinematics, meaning g
 
 [wc-equation]: ./misc_images/wc-equation.png
 [theta123]: ./misc_images/theta123.png
+[attach]: ./misc_images/attach.png
+[drop0]: ./misc_images/drop0.png
+[drop-rviz]: ./misc_images/drop-rviz.png
+[drop]: ./misc_images/drop.png
+[reaching]: ./misc_images/reaching.png
+[reaching2]: ./misc_images/reaching2.png
+[slowness]: ./misc_images/slowness.png
+[cosinelaw]: ./misc_images/cosinelaw.png
+[ik-example]: ./misc_images/ik-example.png
+[dh]: ./misc_images/dh.png
 
 Here I will consider the rubric points individually and describe how I addressed each point in my implementation.  
 
@@ -53,7 +63,11 @@ Same as above we can get the following info from it.
 - J6 = (0.193, 0, 0)
 - JG = (0.11, 0, 0)
 
-Next, using those info, DH tables can be constructed as below. 
+This is how I assign frames, links and joints using a method by Jacques Denavit and Richard Hartenberg which requires only four parameters for each reference frame. 
+
+![Denavit-Hartenberg (DH) Parameters][dh]
+
+Using above visual, DH tables can be constructed as below with the following visual.
 
 Links | alpha(i-1) | a(i-1) | d(i-1) | q(i)
 --- | --- | --- | --- | ---
@@ -97,7 +111,6 @@ And the overall TF matrix is all above post-multiplied:
 
         T0_EE = T0_1 * T1_2 * T2_3 * T3_4 * T4_5 * T5_6 * T6_EE
 
-
 #### 3. Decouple Inverse Kinematics problem into Inverse Position Kinematics and inverse Orientation Kinematics; doing so derive the equations to calculate all individual joint angles.
 
 First, the **inverse position** problem. Using the equation below,
@@ -114,13 +127,37 @@ Where
 * `d` is distance between WC to EE
 * `ROT_EE` is corrected complete rotation matrix.
 
-Then using the following visual, we can calculate `theta1`, `theta2` and `theta3` using law of cosine and SSS trigonometry.
+Then using the following visual, we can see the first three joints `theta1`, `theta2` and `theta3`.
 
-![theta1, theta2, theta3][theta123]
+![first three joints][ik-example]
+
+`theta1` is relatively straightforward once having the wrist center position.
 
     theta1 = atan2(WC[1], WC[0])
+    
+For `theta2` and `theta3`
+
+![theta2, theta3][theta123]
+
+Using Law of Cosine, 
+
+![law of cosine][cosinelaw]
+
+we have
+
+    angle_a = acos((b ** 2 + c ** 2 - a ** 2) / (2 * b * c))
+    angle_b = acos((a ** 2 + c ** 2 - b ** 2) / (2 * a * c))
+    angle_c = acos((a ** 2 + b ** 2 - c ** 2) / (2 * a * b))
+
+Then using SSS trigonometry,
+
     theta2 = pi / 2 - angle_a - atan2(WC[2] - 0.75, sqrt(WC[0] ** 2 + WC[1] ** 2) - 0.35)
-    theta3 = pi / 2 - (angle_b + 0.036) # 0.036 accounts for sag in link4 of -0.054m
+    theta3 = pi / 2 - (angle_b + 0.036)
+    
+Where
+* 0.75 is d from 0-1
+* 0.35 is a from 1-2
+* 0.036 accounts for sag in link4 of -0.054m
 
 Second, for the **inverse orientation** problem,
 
@@ -132,7 +169,18 @@ And
 
 	R3_6 = inv(R0_3) * ROT_EE
 
-And using `atan2` we get
+This gives up the numerical values of `R3_6`. Then we can get the symbolic representation of it by
+
+	R3_6 = T3_4[0:3,0:3] * T4_5[0:3,0:3] * T5_6[0:3,0:3] * T6_EE[0:3,0:3]
+
+And we get
+	
+	R3_6 = Matrix([
+    		[-sin(q4)*sin(q6) + cos(q4)*cos(q5)*cos(q6), -sin(q4)*cos(q6) - sin(q6)*cos(q4)*cos(q5), -sin(q5)*cos(q4)],
+    		[sin(q5)*cos(q6), -sin(q5)*sin(q6), cos(q5)],
+    		[-sin(q4)*cos(q5)*cos(q6) - sin(q6)*cos(q4), sin(q4)*sin(q6)*cos(q5) - cos(q4)*cos(q6), sin(q4)*sin(q5)]])
+
+Having both numerical and symbolic representation of `R3_6`, it's not hard to use `atan2` to calculate `q4`~`q6` as below.
 
 	theta4 = atan2(R3_6[2,2], -R3_6[0,2])
 	theta5 = atan2(sqrt(R3_6[0,2] ** 2 + R3_6[2,2] ** 2), R3_6[1,2])
@@ -162,6 +210,41 @@ Then in the loop,
 	...
 	
 And calculate `theta1` ~ `theta6` using equations listed above.
+
+> IK_server.py must contain properly commented code. The robot must track the planned trajectory and successfully complete pick and place operation.
+
+Here're some sreenshots during one task. Reaching cylinder in location 1
+
+![reaching cylinder][reaching]
+
+Reaching cylinder in random location
+
+![reaching cylinder][reaching2]
+
+Retrieving target
+
+![retrieving target][attach]
+
+Plan to drop target
+
+![plan to drop][drop-rviz]
+
+Reaching drop-off zone
+
+![drop-off zone][drop0]
+
+Dropping target
+
+![dropping][drop]
+
+> Your writeup must include explanation for the code and a discussion on the results.
+
+* Due to poor laptop, running Gazebo, RViz in a virtual machine is a torture. As we can see in the following snapshot, there's a lot of lag in the RViz window when robot arm is moving. It's even more so without moving some forward kinematics code out of the loop.
+* I was stuck at failing to pick up the target because I used "continue". After searching forums, I realize I should use "next" and wait for Gazebo to spit out the "target_link1_collision" message and only then to press "next" again. This is probably caused by some bug in Gazebo that without enough delay, Gazebo may not successfully detect the collision between the gripper and target.
+* Replacing the "LU" decomposition used in calculating `R3_6` with an equivalent transpose improve the accurary in some cases. This is properly due to numerical rounding-off in python.
+
+![slowness][slowness]
+
 
 ### 5. Challenges in the future
 * Using numpy to speed up
