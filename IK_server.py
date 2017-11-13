@@ -45,7 +45,6 @@ def handle_calculate_IK(req):
                 alpha5: -pi/2.0, a5:      0, d6:     0, q6:             q6,
                 alpha6:       0, a6:      0, d7: 0.303, q7:             0}
 
-
 	# Define Modified DH Transformation matrix
         def TF_Matrix(alpha, a, d, q):
             TF = Matrix([
@@ -59,38 +58,15 @@ def handle_calculate_IK(req):
         T0_1 = TF_Matrix(alpha0, a0, d1, q1).subs(DH_Table)
         T1_2 = TF_Matrix(alpha1, a1, d2, q2).subs(DH_Table)
         T2_3 = TF_Matrix(alpha2, a2, d3, q3).subs(DH_Table)
-        T3_4 = TF_Matrix(alpha3, a3, d4, q4).subs(DH_Table)
-        T4_5 = TF_Matrix(alpha4, a4, d5, q5).subs(DH_Table)
-        T5_6 = TF_Matrix(alpha5, a5, d6, q6).subs(DH_Table)
-        T6_EE = TF_Matrix(alpha6, a6, d7, q7).subs(DH_Table)
+        # T3_4 = TF_Matrix(alpha3, a3, d4, q4).subs(DH_Table)
+        # T4_5 = TF_Matrix(alpha4, a4, d5, q5).subs(DH_Table)
+        # T5_6 = TF_Matrix(alpha5, a5, d6, q6).subs(DH_Table)
+        # T6_EE = TF_Matrix(alpha6, a6, d7, q7).subs(DH_Table)
 
-        T0_EE = T0_1 * T1_2 * T2_3 * T3_4 * T4_5 * T5_6 * T6_EE
-
-	# Extract rotation matrices from the transformation matrices
-        # define roll, pitch, yaw rotation matrices
-        # ref: http://planning.cs.uiuc.edu/node102.html
-        r, p, y = symbols('r p y')
-        ROT_x = Matrix([
-            [1, 0, 0],
-            [0, cos(r), -sin(r)],
-            [0, sin(r), cos(r)]])
-
-        ROT_y = Matrix([
-            [cos(p), 0, sin(p)],
-            [0, 1, 0],
-            [-sin(p), 0, cos(p)]])
-
-        ROT_z = Matrix([
-            [cos(y), -sin(y), 0],
-            [sin(y), cos(y), 0],
-            [0, 0, 1]])
-
-        ROT_EE = ROT_z * ROT_y * ROT_x
+        # T0_EE = T0_1 * T1_2 * T2_3 * T3_4 * T4_5 * T5_6 * T6_EE
 
         # Correction needed to account for orientation differences between
         # definition of gripper link in URDF versus DH convention
-        ROT_Correction = ROT_z.subs(y, radians(180)) * ROT_y.subs(p, radians(-90))
-
         
         # Initialize service response
         joint_trajectory_list = []
@@ -110,7 +86,28 @@ def handle_calculate_IK(req):
                     req.poses[x].orientation.z, req.poses[x].orientation.w])
      
             ### Your IK code here 
+	    # define roll, pitch, yaw rotation matrices
+	    # ref: http://planning.cs.uiuc.edu/node102.html
+	    r, p, y = symbols('r p y')
+	    ROT_x = Matrix([
+		[1, 0, 0],
+		[0, cos(r), -sin(r)],
+		[0, sin(r), cos(r)]])
+
+	    ROT_y = Matrix([
+		[cos(p), 0, sin(p)],
+		[0, 1, 0],
+		[-sin(p), 0, cos(p)]])
+
+	    ROT_z = Matrix([
+		[cos(y), -sin(y), 0],
+		[sin(y), cos(y), 0],
+		[0, 0, 1]])
+
+	    ROT_EE = ROT_z * ROT_y * ROT_x
+
 	    # Compensate for rotation discrepancy between DH parameters and Gazebo
+            ROT_Correction = ROT_z.subs(y, radians(180)) * ROT_y.subs(p, radians(-90))
             ROT_EE = ROT_EE * ROT_Correction
             ROT_EE = ROT_EE.subs({'r': roll, 'p': pitch, 'y': yaw})
 
@@ -137,7 +134,7 @@ def handle_calculate_IK(req):
 
             R0_3 = T0_1[0:3,0:3] * T1_2[0:3,0:3] * T2_3[0:3,0:3]
             R0_3 = R0_3.evalf(subs={q1: theta1, q2: theta2, q3: theta3})
-            R3_6 = R0_3.inv("LU") * ROT_EE
+            R3_6 = R0_3.T * ROT_EE
 
             # Euler angles for rotation matrix
             # ref: lesson 2: Euler Angles from a Rotation Matrix
@@ -163,3 +160,4 @@ def IK_server():
 
 if __name__ == "__main__":
     IK_server()
+
